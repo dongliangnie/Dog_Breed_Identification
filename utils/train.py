@@ -11,31 +11,42 @@ def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
     os.makedirs("./model_weight", exist_ok=True)
     os.makedirs("./log/train_loss", exist_ok=True)
     os.makedirs("./log/valid_loss", exist_ok=True)
-    
+    os.makedirs("./log/train_accuracy",exist_ok=True)
+    os.makedirs("./log/valid_accuracy",exist_ok=True)
+
     save_models_path = "./model_weight/" + str(model_name) + '_epoch' + str(n_epochs) + '.pt'
-    save_train_path = "./log/train_loss/" + str(model_name) + '_epoch' + str(n_epochs) + '.log'
-    save_valid_path = "./log/valid_loss/" + str(model_name) + '_epoch' + str(n_epochs) + '.log'
-    
+    save_train_loss_path = "./log/train_loss/" + str(model_name) + '_epoch' + str(n_epochs) + '.log'
+    save_valid_loss_path = "./log/valid_loss/" + str(model_name) + '_epoch' + str(n_epochs) + '.log'
+    save_train_accuracy_path = "./log/train_accuracy/" + str(model_name) + '_epoch' + str(n_epochs) + '.log'
+    save_valid_accuracy_path = "./log/valid_accuracy/" + str(model_name) + '_epoch' + str(n_epochs) + '.log'
+
     # 检查模型和损失文件是否存在
-    if os.path.exists(save_models_path) and os.path.exists(save_train_path) and os.path.exists(save_valid_path):
+    if os.path.exists(save_models_path) and os.path.exists(save_train_loss_path) and os.path.exists(save_valid_loss_path) and os.path.exists(save_train_accuracy_path) and os.path.exists(save_valid_accuracy_path):
         print('Model already exists, loading from', save_models_path)
         model.load_state_dict(torch.load(save_models_path))
-        with open(save_train_path, 'r') as f:
+        with open(save_train_loss_path, 'r') as f:
             train_losses = [float(line.strip()) for line in f]
-        with open(save_valid_path, 'r') as f:
+        with open(save_valid_loss_path, 'r') as f:
             valid_losses = [float(line.strip()) for line in f]
-        return model, train_losses, valid_losses
+        with open(save_train_accuracy_path, 'r') as f:
+            train_accuracies = [float(line.strip()) for line in f]
+        with open(save_valid_accuracy_path, 'r') as f:
+            valid_accuracies = [float(line.strip()) for line in f]
+        print('Model loaded successfully.')
+        return model, train_losses, valid_losses, train_accuracies, valid_accuracies
     
     # 初始化跟踪变量
     valid_loss_min = np.inf 
     train_losses = []
     valid_losses = []
-    
+    train_accuracies = []
+    valid_accuracies= []
     for epoch in range(1, n_epochs + 1):
         # 初始化监控变量
         train_loss = 0.0
         valid_loss = 0.0
-        
+        correct=0
+        total=0
         ###################
         # 训练模型 #
         ###################
@@ -54,17 +65,22 @@ def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
             
             # 移动平均
             train_loss = train_loss + ((1 / (batch_idx + 1)) * (loss.data - train_loss))
-            
+            _, predicted=torch.max(output.data,1)
+            total+=target.size(0)
+            correct+=(predicted==target).sum().item()
             if batch_idx % 100 == 0:
                 print('Epoch: %d \tBatch: %d \tTraining Loss: %.6f' % (epoch, batch_idx + 1, train_loss))
         
         train_loss_value = train_loss.cpu().item() if use_cuda else train_loss.item()
         train_losses.append(train_loss_value)
-        
+        train_accuracy=correct/total
+        train_accuracies.append(train_accuracy)
         ######################    
         # 验证模型 #
         ######################
         model.eval()
+        correct=0
+        total=0
         with torch.no_grad():  # 添加no_grad以提高效率
             for batch_idx, (data, target) in enumerate(loaders['valid']):
                 # 移动到GPU
@@ -75,13 +91,18 @@ def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
                 output = model(data)
                 loss = criterion(output, target)
                 valid_loss = valid_loss + ((1 / (batch_idx + 1)) * (loss.data - valid_loss))
-        
+                _,predicted=torch.max(output.data,1)
+                total+=target.size(0)
+                correct+=(predicted==target).sum().item()
         valid_loss_value = valid_loss.cpu().item() if use_cuda else valid_loss.item()
+        valid_accuracy=correct/total
+        valid_accuracies.append(valid_accuracy)
         valid_losses.append(valid_loss_value)
         
         # 打印训练/验证统计信息
-        print('Epoch: {} \tTraining Loss: {:.4f} \tValidation Loss: {:.4f}'.format(
-            epoch, train_loss_value, valid_loss_value))
+        print(f"Epoch {epoch}: "
+              f"Train Loss = {train_loss:.4f}, Valid Loss = {valid_loss:.4f}, "
+              f"Train Acc = {train_accuracy:.4f}, Valid Acc = {valid_accuracy:.4f}")
         
         # 如果验证损失减少，保存模型
         if valid_loss_value < valid_loss_min:
@@ -91,20 +112,26 @@ def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
             valid_loss_min = valid_loss_value
     
     # 修正：正确保存损失数据
-    with open(save_train_path, 'w') as f:
+    with open(save_train_loss_path, 'w') as f:
         for loss_value in train_losses:
             f.write(f"{loss_value}\n")
-    
-    with open(save_valid_path, 'w') as f:   
+    with open(save_train_accuracy_path, 'w') as f:   
+        for accuracy_value in train_accuracies:
+            f.write(f"{accuracy_value}\n")
+    with open(save_valid_loss_path, 'w') as f:   
         for loss_value in valid_losses:
             f.write(f"{loss_value}\n")
-    
+    with open(save_valid_accuracy_path, 'w') as f:   
+        for accuracy_value in valid_accuracies:
+            f.write(f"{accuracy_value}\n")
     print(f"训练完成！模型保存至: {save_models_path}")
-    print(f"训练损失保存至: {save_train_path}")
-    print(f"验证损失保存至: {save_valid_path}")
+    print(f"训练损失保存至: {save_train_loss_path}")
+    print(f"验证损失保存至: {save_valid_loss_path}")
+    print(f"训练准确率保存至: {save_train_accuracy_path}")
+    print(f"验证准确率保存至: {save_valid_accuracy_path}")
     
     # 返回训练好的模型
-    return model, train_losses, valid_losses
+    return model, train_losses, valid_losses,train_accuracies,valid_accuracies
 def transfer_train(model_transfer, dataloaders, lr=0.01, n_epochs=15,use_cuda=1):
     if use_cuda:
         model_transfer = model_transfer.cuda()
@@ -156,8 +183,14 @@ def transfer_train(model_transfer, dataloaders, lr=0.01, n_epochs=15,use_cuda=1)
     
     criterion_transfer = nn.CrossEntropyLoss()
     model_transfer_grad_parameters = filter(lambda p: p.requires_grad, model_transfer.parameters())
-    optimizer_transfer = torch.optim.SGD(model_transfer_grad_parameters, lr=lr)
-    model_name=model_transfer.__class__.__name__.lower()
+    # optimizer_transfer = torch.optim.SGD(model_transfer_grad_parameters, lr=lr)
+    optimizer_transfer=torch.optim.Adam(
+        model_transfer_grad_parameters,
+        lr=0.001,           # 学习率
+        betas=(0.9, 0.999), # 动量参数
+        eps=1e-08,          # 数值稳定性
+        weight_decay=0      # L2 正则化
+    )
 
-    model_transfer,train_losses,valid_losses = train(n_epochs, dataloaders, model_transfer, optimizer_transfer, criterion_transfer, use_cuda)
-    return model_transfer,train_losses,valid_losses
+    model_transfer,train_losses,valid_losses,train_accuracies,valid_accuracies = train(n_epochs, dataloaders, model_transfer, optimizer_transfer, criterion_transfer, use_cuda)
+    return model_transfer,train_losses,valid_losses,train_accuracies,valid_accuracies
