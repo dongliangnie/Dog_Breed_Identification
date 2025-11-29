@@ -39,7 +39,7 @@ def plot_multiple_metrics_by_epoch(
     # -----------------------
     # Figure 1: TRAIN (1x2)
     # -----------------------
-    fig, (ax_loss_t, ax_acc_t) = plt.subplots(1, 2, figsize=(32, 15), sharex=True)
+    fig, (ax_loss_t, ax_acc_t) = plt.subplots(1, 2, figsize=(20, 10), sharex=True)
 
     used_y_loss = []
     used_y_acc  = []
@@ -81,7 +81,7 @@ def plot_multiple_metrics_by_epoch(
     # ------------------------
     # Figure 2: VALID (1x2)
     # ------------------------
-    fig, (ax_loss_v, ax_acc_v) = plt.subplots(1, 2, figsize=(16, 5), sharex=True)
+    fig, (ax_loss_v, ax_acc_v) = plt.subplots(1, 2, figsize=(20, 10), sharex=True)
 
     used_y_loss = []
     used_y_acc  = []
