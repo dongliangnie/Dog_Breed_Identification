@@ -2,7 +2,7 @@ import os
 import torch
 import torch.nn as nn
 import numpy as np
-
+from .distillation import DistillationLoss
 def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
     """returns trained model"""
     model_name = model.__class__.__name__.lower()
@@ -111,7 +111,6 @@ def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
                 valid_loss_min, valid_loss_value))
             valid_loss_min = valid_loss_value
     
-    # 修正：正确保存损失数据
     with open(save_train_loss_path, 'w') as f:
         for loss_value in train_losses:
             f.write(f"{loss_value}\n")
@@ -194,3 +193,127 @@ def transfer_train(model_transfer, dataloaders, lr=0.01, n_epochs=15,use_cuda=1)
 
     model_transfer,train_losses,valid_losses,train_accuracies,valid_accuracies = train(n_epochs, dataloaders, model_transfer, optimizer_transfer, criterion_transfer, use_cuda)
     return model_transfer,train_losses,valid_losses,train_accuracies,valid_accuracies
+def train_kd(student, teacher, dataloader, optimizer, use_cuda, T = 4, n_epochs=10):
+    # 创建必要的目录
+    os.makedirs("./model_weight", exist_ok=True)
+    os.makedirs("./model_weight", exist_ok=True)
+    os.makedirs("./log/train_loss", exist_ok=True)
+    os.makedirs("./log/valid_loss", exist_ok=True)
+    os.makedirs("./log/train_accuracy",exist_ok=True)
+    os.makedirs("./log/valid_accuracy",exist_ok=True)
+    save_models_path = "./model_weight/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_train_loss_path = "./log/train_loss/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_valid_loss_path = "./log/valid_loss/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_train_accuracy_path = "./log/train_accuracy/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_valid_accuracy_path = "./log/valid_accuracy/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+
+    # 检查模型和损失文件是否存在
+    if os.path.exists(save_train_loss_path) and os.path.exists(save_valid_loss_path) and os.path.exists(save_train_accuracy_path) and os.path.exists(save_valid_accuracy_path):
+        print('Model already exists, loading from', save_models_path)
+        student.load_state_dict(torch.load(save_models_path))
+        with open(save_train_loss_path, 'r') as f:
+            train_losses = [float(line.strip()) for line in f]
+        with open(save_valid_loss_path, 'r') as f:
+            valid_losses = [float(line.strip()) for line in f]
+        with open(save_train_accuracy_path, 'r') as f:
+            train_accuracies = [float(line.strip()) for line in f]
+        with open(save_valid_accuracy_path, 'r') as f:
+            valid_accuracies = [float(line.strip()) for line in f]
+        print('Model loaded successfully.')
+        return student, train_losses, valid_losses, train_accuracies, valid_accuracies
+    kd_loss_fn = DistillationLoss(T=T, alpha=0.7)
+    if use_cuda:
+        student = student.cuda()
+        teacher = teacher.cuda()
+        kd_loss_fn = kd_loss_fn.cuda()
+    train_losses=[]
+    valid_losses=[]
+    train_accuracies=[]
+    valid_accuracies=[]
+    valid_loss_min = np.inf 
+    for epoch in range(n_epochs):
+        student.train()
+        teacher.eval()
+
+        train_loss = 0
+        valid_loss = 0
+        correct = 0
+        total = 0
+
+        for batch_idx,(data, target) in enumerate(dataloader['train']):
+            if use_cuda:
+                data,target=data.cuda(),target.cuda()
+            # Forward
+            student_logits = student(data)
+            with torch.no_grad():
+                teacher_logits = teacher(data)[0]
+
+            # KD Loss
+            loss = kd_loss_fn(student_logits, teacher_logits, target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+
+            train_loss = train_loss + ((1 / (batch_idx + 1)) * (loss.data - train_loss))
+            _, predicted=torch.max(student_logits,1)
+            total+=target.size(0)
+            correct+=(predicted==target).sum().item()
+            if batch_idx % 100 == 0:
+                print('Epoch: %d \tBatch: %d \tTraining Loss: %.6f' % (epoch, batch_idx + 1, train_loss))
+                train_loss_value = train_loss.cpu().item() if use_cuda else train_loss.item()
+        train_losses.append(train_loss_value)
+        train_accuracy=correct/total
+        train_accuracies.append(train_accuracy)
+        student.eval()
+        correct=0
+        total=0
+        with torch.no_grad():
+            for batch_idx,(data, target) in enumerate(dataloader['valid']):
+                if use_cuda:
+                    data, target= data.cuda(), target.cuda()
+                 # Forward
+                student_logits = student(data)
+                teacher_logits =  teacher(data)[0]
+                # KD Loss
+                loss = kd_loss_fn(student_logits, teacher_logits, target)
+                student_logits = student(data)
+                valid_loss = valid_loss + ((1 / (batch_idx + 1)) * (loss.data - valid_loss))
+                _, predicted=torch.max(student_logits,1)
+                total+=target.size(0)
+                correct+=(predicted==target).sum().item()
+        valid_loss_value=valid_loss.cpu().item() if use_cuda else valid_loss.item()
+        valid_losses.append(valid_loss_value)
+        valid_accuracy=correct/total
+        valid_accuracies.append(valid_accuracy)
+         # 打印训练/验证统计信息
+        print(f"Epoch {epoch}: "
+              f"Train Loss = {train_loss:.4f}, Valid Loss = {valid_loss:.4f}, "
+              f"Train Acc = {train_accuracy:.4f}, Valid Acc = {valid_accuracy:.4f}")
+        # 如果验证损失减少，保存模型
+        if valid_loss_value < valid_loss_min:
+            torch.save(student.state_dict(), save_models_path)
+            print('BOOM! Validation loss decreased ({:.4f} --> {:.4f}).  Saving model...'.format(
+                valid_loss_min, valid_loss_value))
+            valid_loss_min = valid_loss_value
+    torch.save(student.state_dict(), save_models_path)
+    with open(save_train_loss_path, 'w') as f:
+        for loss_value in train_losses:
+            f.write(f"{loss_value}\n")
+    with open(save_train_accuracy_path, 'w') as f:   
+        for accuracy_value in train_accuracies:
+            f.write(f"{accuracy_value}\n")
+    with open(save_valid_loss_path, 'w') as f:   
+        for loss_value in valid_losses:
+            f.write(f"{loss_value}\n")
+    with open(save_valid_accuracy_path, 'w') as f:   
+        for accuracy_value in valid_accuracies:
+            f.write(f"{accuracy_value}\n")
+    print(f"训练完成！模型保存至: {save_models_path}")
+    print(f"训练损失保存至: {save_train_loss_path}")
+    print(f"验证损失保存至: {save_valid_loss_path}")
+    print(f"训练准确率保存至: {save_train_accuracy_path}")
+    print(f"验证准确率保存至: {save_valid_accuracy_path}")
+    
+    # 返回训练好的模型
+    return student, train_losses, valid_losses,train_accuracies,valid_accuracies
