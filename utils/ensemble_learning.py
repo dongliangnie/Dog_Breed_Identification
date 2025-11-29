@@ -23,6 +23,28 @@ class SENetFeatureExtractor(nn.Module):
         x = self.features(x)
         x = torch.flatten(x, 1)
         return x
+    
+class EnsembleSoftVoting(torch.nn.Module):
+    def __init__(self, model1, model2, weight1=0.5, weight2=0.5):
+        super().__init__()
+        self.model1 = model1
+        self.model2 = model2
+        self.w1 = weight1
+        self.w2 = weight2
+
+    def forward(self, x):
+        # 输出 logits
+        logits1 = self.model1(x)
+        logits2 = self.model2(x)
+
+        # softmax 变成概率再加权
+        probs1 = F.softmax(logits1, dim=1)
+        probs2 = F.softmax(logits2, dim=1)
+
+        # 加权融合
+        final_probs = self.w1 * probs1 + self.w2 * probs2
+
+        return final_probs
 
 class FeatureFusionEnsemble(nn.Module):
     """

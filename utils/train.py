@@ -256,8 +256,7 @@ def train_svm_on_features(features_train, labels_train, features_test, labels_te
         return svm_linear, accuracy_linear, 'linear'
     else:
         print(f"\n选择RBF SVM作为最佳模型 (准确率: {accuracy_rbf:.4f})")
-        return svm_rbf, accuracy_rbf, 'rbf'
-    
+        return svm_rbf, accuracy_rbf, 'rbf'   
 def train_kd(student, teacher, dataloader, optimizer, use_cuda, T = 4, n_epochs=10):
     # 创建必要的目录
     student_name = student.__class__.__name__.lower()
@@ -267,7 +266,7 @@ def train_kd(student, teacher, dataloader, optimizer, use_cuda, T = 4, n_epochs=
     os.makedirs("./log/valid_loss", exist_ok=True)
     os.makedirs("./log/train_accuracy",exist_ok=True)
     os.makedirs("./log/valid_accuracy",exist_ok=True)
-    save_models_path = "./model_weight/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_models_path = "./model_weight/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.pt'
     save_train_loss_path = "./log/train_loss/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
     save_valid_loss_path = "./log/valid_loss/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
     save_train_accuracy_path = "./log/train_accuracy/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
