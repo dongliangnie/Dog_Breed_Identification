@@ -3,6 +3,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 from .distillation import DistillationLoss
+from sklearn.svm import SVC
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score
+from sklearn.model_selection import cross_val_score, GridSearchCV
+from visualize.plot_loss import plot_confusion_matrix,plot_confusion_matrix_subset
 def train(n_epochs, loaders, model, optimizer, criterion, use_cuda):
     """returns trained model"""
     model_name = model.__class__.__name__.lower()
@@ -193,19 +197,81 @@ def transfer_train(model_transfer, dataloaders, lr=0.01, n_epochs=15,use_cuda=1)
 
     model_transfer,train_losses,valid_losses,train_accuracies,valid_accuracies = train(n_epochs, dataloaders, model_transfer, optimizer_transfer, criterion_transfer, use_cuda)
     return model_transfer,train_losses,valid_losses,train_accuracies,valid_accuracies
+def train_svm_on_features(features_train, labels_train, features_test, labels_test, model_name="Model"):
+    """
+    在提取的特征上训练SVM分类器
+    """
+    print(f"开始训练SVM分类器...")
+    print(f"训练集特征形状: {features_train.shape}, 标签形状: {labels_train.shape}")
+    print(f"测试集特征形状: {features_test.shape}, 标签形状: {labels_test.shape}")
+    
+    # 首先尝试使用线性SVM
+    print("训练线性SVM...")
+    svm_linear = SVC(kernel='linear', random_state=42)
+    svm_linear.fit(features_train, labels_train)
+    
+    # 在测试集上预测
+    y_pred_linear = svm_linear.predict(features_test)
+    accuracy_linear = accuracy_score(labels_test, y_pred_linear)
+    
+    print(f"线性SVM准确率: {accuracy_linear:.4f}")
+    print("\n线性SVM分类报告:")
+    print(classification_report(labels_test, y_pred_linear))
+    
+    # 绘制混淆矩阵
+    plot_confusion_matrix_subset(
+        labels_test, y_pred_linear, save_path='./result/svm_linear_rnd20.png'
+    )
+    plot_confusion_matrix(
+        labels_test, y_pred_linear, save_path='./result/svm_linear_120.png'
+    )
+    # 尝试RBF核SVM
+    print("\n训练RBF核SVM...")
+    svm_rbf = SVC(kernel='rbf', random_state=42)
+    svm_rbf.fit(features_train, labels_train)
+    
+    y_pred_rbf = svm_rbf.predict(features_test)
+    accuracy_rbf = accuracy_score(labels_test, y_pred_rbf)
+    
+    print(f"RBF SVM准确率: {accuracy_rbf:.4f}")
+    print("\nRBF SVM分类报告:")
+    print(classification_report(labels_test, y_pred_rbf))
+    plot_confusion_matrix(
+        labels_test, y_pred_linear, save_path='./result/svm_rbf_120.png'
+    )
+    plot_confusion_matrix_subset(
+        labels_test, y_pred_linear, save_path='./result/svm_rbf_rnd20.png'
+    )
+    # 交叉验证评估
+    print("\n进行5折交叉验证...")
+    cv_scores_linear = cross_val_score(svm_linear, features_train, labels_train, cv=5, scoring='accuracy')
+    cv_scores_rbf = cross_val_score(svm_rbf, features_train, labels_train, cv=5, scoring='accuracy')
+    
+    print(f"线性SVM交叉验证准确率: {cv_scores_linear.mean():.4f} (+/- {cv_scores_linear.std() * 2:.4f})")
+    print(f"RBF SVM交叉验证准确率: {cv_scores_rbf.mean():.4f} (+/- {cv_scores_rbf.std() * 2:.4f})")
+    
+    # 返回最佳模型
+    if accuracy_linear >= accuracy_rbf:
+        print(f"\n选择线性SVM作为最佳模型 (准确率: {accuracy_linear:.4f})")
+        return svm_linear, accuracy_linear, 'linear'
+    else:
+        print(f"\n选择RBF SVM作为最佳模型 (准确率: {accuracy_rbf:.4f})")
+        return svm_rbf, accuracy_rbf, 'rbf'
+    
 def train_kd(student, teacher, dataloader, optimizer, use_cuda, T = 4, n_epochs=10):
     # 创建必要的目录
+    student_name = student.__class__.__name__.lower()
     os.makedirs("./model_weight", exist_ok=True)
     os.makedirs("./model_weight", exist_ok=True)
     os.makedirs("./log/train_loss", exist_ok=True)
     os.makedirs("./log/valid_loss", exist_ok=True)
     os.makedirs("./log/train_accuracy",exist_ok=True)
     os.makedirs("./log/valid_accuracy",exist_ok=True)
-    save_models_path = "./model_weight/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
-    save_train_loss_path = "./log/train_loss/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
-    save_valid_loss_path = "./log/valid_loss/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
-    save_train_accuracy_path = "./log/train_accuracy/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
-    save_valid_accuracy_path = "./log/valid_accuracy/" + "TS" + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_models_path = "./model_weight/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_train_loss_path = "./log/train_loss/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_valid_loss_path = "./log/valid_loss/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_train_accuracy_path = "./log/train_accuracy/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
+    save_valid_accuracy_path = "./log/valid_accuracy/" + "TS_"+str(student_name) + '_epoch' + str(n_epochs) +'_T'+str(T)+ '.log'
 
     # 检查模型和损失文件是否存在
     if os.path.exists(save_train_loss_path) and os.path.exists(save_valid_loss_path) and os.path.exists(save_train_accuracy_path) and os.path.exists(save_valid_accuracy_path):
