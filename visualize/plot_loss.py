@@ -1,6 +1,7 @@
 import numpy as np
 import matplotlib.pyplot as plt
-
+import seaborn as sns
+from sklearn.metrics import confusion_matrix
 def plot_multiple_metrics_by_epoch(
     train_losses_list, valid_losses_list,
     train_acc_list, valid_acc_list,
@@ -73,7 +74,7 @@ def plot_multiple_metrics_by_epoch(
     ax_acc_t.grid(alpha=0.25)
     ax_acc_t.legend(fontsize=9, ncol=1)
 
-    plt.suptitle("Training Metrics", fontsize=16)
+    # plt.suptitle("Training Metrics", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(f"./result/{save_prefix}_train_{n_epochs}.png", dpi=300, bbox_inches='tight')
     plt.show()
@@ -115,7 +116,87 @@ def plot_multiple_metrics_by_epoch(
     ax_acc_v.grid(alpha=0.25)
     ax_acc_v.legend(fontsize=9, ncol=1)
 
-    plt.suptitle("Validation Metrics", fontsize=16)
+    # plt.suptitle("Validation Metrics", fontsize=16)
     plt.tight_layout(rect=[0, 0, 1, 0.96])
     plt.savefig(f"./result/{save_prefix}_valid_{n_epochs}.png", dpi=300, bbox_inches='tight')
     plt.show()
+def plot_confusion_matrix(
+    all_targets,
+    all_preds,
+    save_path="confusion_matrix.png"
+):
+    """
+    绘制完整混淆矩阵。
+
+    Args:
+        all_targets: List[int] or ndarray, 所有真实标签
+        all_preds:   List[int] or ndarray, 所有模型预测标签
+        save_path: 文件保存路径
+    """
+    cm = confusion_matrix(all_targets, all_preds)
+
+    plt.figure(figsize=(60, 50))
+    sns.heatmap(
+        cm,
+        annot=True,
+        cmap="Blues"
+    )
+    plt.xlabel("Pred")
+    plt.ylabel("Target")
+    # plt.title("Confusion Matrix")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.show()
+
+    return cm
+def plot_confusion_matrix_subset(
+    all_targets,
+    all_preds,
+    num_classes_to_show=20,
+    selected_classes=None,
+    save_path="cm_20classes.png"
+):
+    """
+    绘制从全量混淆矩阵中抽取 20 个类别（或指定类别）的子矩阵。
+
+    Args:
+        all_targets: List[int] or ndarray, 所有真实标签
+        all_preds:   List[int] or ndarray, 所有模型预测标签
+        num_classes_to_show: int, 默认随机抽取 20 类
+        selected_classes: List[int], 若不为 None，则使用指定的类
+        save_path: 文件保存路径
+    """
+    
+    all_targets = np.array(all_targets)
+    all_preds   = np.array(all_preds)
+
+    # 计算完整 CM
+    cm = confusion_matrix(all_targets, all_preds)
+    total_classes = cm.shape[0]
+
+    # 如果没指定类，则随机选
+    if selected_classes is None:
+        selected_classes = np.random.choice(total_classes, num_classes_to_show, replace=False)
+        selected_classes = np.sort(selected_classes)
+        print("随机选取的类:", selected_classes)
+    else:
+        print("使用指定的类:", selected_classes)
+
+    # 截取子矩阵
+    cm_sub = cm[np.ix_(selected_classes, selected_classes)]
+
+    # 绘制图
+    plt.figure(figsize=(20, 16))
+    sns.heatmap(
+        cm_sub,
+        annot=True,
+        cmap="Blues",
+        xticklabels=selected_classes,
+        yticklabels=selected_classes
+    )
+    plt.xlabel("Pred")
+    plt.ylabel("Target")
+    # plt.title(f"Confusion Matrix ({len(selected_classes)} Classes)")
+    plt.savefig(save_path, dpi=300, bbox_inches="tight")
+    plt.show()
+
+    return cm_sub, selected_classes
